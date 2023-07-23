@@ -9,9 +9,9 @@ using System.Linq;
 // The reasoning is that given a board position, the majority of possible
 // moves are obviously bad, and only a few are worth considering. So more
 // time is spent on the obvious moves, and less on the rest.
-public class MyBot : IChessBot
+public class BotSecondAttempt : IChessBot
 {
-    public MyBot()
+    public BotSecondAttempt()
     {
         rng = new System.Random();
     }
