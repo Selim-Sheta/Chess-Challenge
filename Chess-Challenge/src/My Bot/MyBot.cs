@@ -1,8 +1,10 @@
-﻿using ChessChallenge.API;
+﻿/**/
+using ChessChallenge.API;
 using System;
 using System.Numerics;
 using System.Collections.Generic;
 using System.Linq;
+/**/
 
 // This bot optimises the search by prioritising the most obvious moves.
 // The reasoning is that given a board position, the majority of possible
@@ -17,17 +19,28 @@ public class MyBot : IChessBot
 
     public Move Think(Board board, Timer timer)
     {
+        // game setup
         if (!hasStarted) {
             hasStarted = true;
             maxTime = timer.MillisecondsRemaining;
-            gamePhase = 0; // enter opening
+            isWhite = board.IsWhiteToMove;
         }
         timeRemainingAtStart = timer.MillisecondsRemaining;
         if (gamePhase == 0 && board.PlyCount > 6) gamePhase = 1; // enter middle game
-        if (IsEndGame(board)) gamePhase = 2; // enter end game
-        // return the best of the obvious moves
-        Move bestMove = FindBestMove(board, board.IsWhiteToMove, EvaluateBoard(board, board.IsWhiteToMove), 0, 2, timer);
+        PieceList[] pieces = board.GetAllPieceLists();
+        int numPiecesWhite = 0;
+        int numPiecesBlack = 0;
+        for (int i = 0; i < 6; i++)
+        {
+            numPiecesWhite += pieces[i].Count;
+            numPiecesBlack += pieces[i + 6].Count;
+        }
+        if (numPiecesWhite <= 8 || numPiecesBlack <= 8) gamePhase = 2; // enter end game
+        // find move
+        Move bestMove = FindBestMove(board, isWhite, EvaluateBoard(board, isWhite), 0, depthLimit, timer);
+        // update state
         newPos = bestMove.TargetSquare;
+        // return move
         return bestMove;
     }
 
@@ -189,16 +202,10 @@ public class MyBot : IChessBot
         return isDraw;
     }
 
-    bool IsEndGame(Board board)
-    {
-        PieceList[] pieces = board.GetAllPieceLists();
-        int numPieces = 0;
-        for (int i = 0; i < 12; i++) numPieces += pieces[i].Count;
-        return (numPieces <= 16);
-    }
-
+    bool isWhite = true;
     bool hasStarted = false;
     int gamePhase = 0; // 0 for opening, 1 for midgame, 2 for endgame
+    int depthLimit = 20;
     float timeRemainingAtStart;
     float maxTime;
     System.Random rng;
