@@ -20,13 +20,17 @@ public class MyBot : IChessBot
     public Move Think(Board board, Timer timer)
     {
         // game setup
-        if (!hasStarted) {
+        if (!hasStarted)
+        {
             hasStarted = true;
             maxTime = timer.MillisecondsRemaining;
             isWhite = board.IsWhiteToMove;
+            Console.WriteLine("I'm White");
         }
         timeRemainingAtStart = timer.MillisecondsRemaining;
-        if (gamePhase == 0 && board.PlyCount > 6) gamePhase = 1; // enter middle game
+        // enter middle game
+        if (gamePhase == 0 && board.PlyCount > 6) gamePhase = 1;
+        // enter end game
         PieceList[] pieces = board.GetAllPieceLists();
         int numPiecesWhite = 0;
         int numPiecesBlack = 0;
@@ -35,13 +39,9 @@ public class MyBot : IChessBot
             numPiecesWhite += pieces[i].Count;
             numPiecesBlack += pieces[i + 6].Count;
         }
-        if (numPiecesWhite <= 8 || numPiecesBlack <= 8) gamePhase = 2; // enter end game
-        // find move
-        Move bestMove = FindBestMove(board, isWhite, EvaluateBoard(board, isWhite), 0, depthLimit, timer);
-        // update state
-        newPos = bestMove.TargetSquare;
-        // return move
-        return bestMove;
+        if (numPiecesWhite <= 8 || numPiecesBlack <= 8) gamePhase = 2; 
+        // find and return move
+        return FindBestMove(board, isWhite, EvaluateBoard(board, isWhite), 0, depthLimit, timer);
     }
 
     // Compute the obviousness score of a move based on the basic
@@ -54,7 +54,7 @@ public class MyBot : IChessBot
         if (IsCheckMate(move, board)) return 100.0f;
         if (IsCheck(move, board)) obviousness += 3.0f;
         // 2. capture
-        if (move.IsCapture) obviousness += 2.0f;
+        if (move.IsCapture) obviousness += GetPieceValue(move.CapturePieceType);
         // 3. attack
         if (pieceType == PieceType.Pawn)
         {
@@ -63,14 +63,13 @@ public class MyBot : IChessBot
             // extra bias for the opening
             if (move.TargetSquare.File == 3 || move.TargetSquare.File == 4) obviousness += 1.0f;
         }
-        if (pieceType == PieceType.Knight || pieceType == PieceType.Bishop) obviousness += (gamePhase == 0) ? 1.5f : 1.0f;
-        if (pieceType == PieceType.Rook || pieceType == PieceType.Queen) obviousness += ((gamePhase < 2) ? 0.5f : 1.5f);
-        if (pieceType == PieceType.King) obviousness += ((gamePhase < 2) ? 0.5f : 1.25f);
+        if (pieceType == PieceType.Knight || pieceType == PieceType.Bishop) obviousness += ((gamePhase == 0) ? 1.5f : 1.0f);
+        if (pieceType == PieceType.Rook || pieceType == PieceType.Queen) obviousness += gamePhase / 2.0f;
+        if (pieceType == PieceType.King) obviousness += gamePhase / 2.0f;
         // 4. special
-        if (move.IsCastles) obviousness += 2.0f;
+        if (move.IsCastles) obviousness += 3.0f;
         if (move.IsPromotion) obviousness += 10.0f;
-        if (board.SquareIsAttackedByOpponent(move.TargetSquare)) obviousness -= 0.25f; // avoid going where you can be attacked
-        if (move.StartSquare == newPos) obviousness -= 0.5f; // avoid moving the same piece twice
+        if (board.SquareIsAttackedByOpponent(move.TargetSquare)) obviousness -= 0.5f; // going where you can be attacked
         return Math.Max(obviousness, 0.0f);
     }
 
@@ -92,69 +91,72 @@ public class MyBot : IChessBot
     }
 
     // Find best move by recursion.
-    Move FindBestMove(Board board, bool isWhiteToPlay, float currentEval, int currentDepth, int maxDepth, Timer timer)
+    Move FindBestMove(Board board, bool isWhiteToPlay, float startEval, int currentDepth, int maxDepth, Timer timer)
     {
         // init algorithm
-        float startEval = EvaluateBoard(board, isWhiteToPlay);
         Move[] moves = board.GetLegalMoves();
         int numMoves = moves.Length;
         if (numMoves == 1) return moves[0];
-        float timeCoeff = (timeRemainingAtStart - timer.MillisecondsElapsedThisTurn) / maxTime;
+        float currentEval = EvaluateBoard(board, isWhiteToPlay);
 
-        // Retrieve the obviousness of all the moves
-        float[] moveObviousness = new float[numMoves];
-        for (int i = 0; i < numMoves; i++) moveObviousness[i] = MoveObviousness(moves[i], board);
-
+        // Retrieve the obviousness of all the moves and sort
+        float[] moveObviousness = moves.Select(move => MoveObviousness(move, board)).ToArray();
+        var sortedArrays = moveObviousness.Select((b, index) => new { moveObviousness = b, moves = moves[index] })
+                           .OrderByDescending(item => item.moveObviousness)
+                           .ToArray();
+        moveObviousness = sortedArrays.Select(item => item.moveObviousness).ToArray();
+        moves = sortedArrays.Select(item => item.moves).ToArray();
+        
         // Evaluate all the moves
         float[] moveEvals = new float[numMoves];
-        for (int i = 0; i < numMoves; i++)
-        {   
+        float movesBias = Math.Max(30 - numMoves, 0) / 30.0f;
+        for (int i = 0; i < numMoves; i++) // for all available moves
+        {
             Move move = moves[i];
-            if (IsCheckMate(move, board)) return move; // checkmate
-            if (IsDraw(move, board)) {
-                moveEvals[i] = 0.0f; // draw
+            if (IsCheckMate(move, board)) return move; // checkmate, return directly
+            if (IsDraw(move, board))
+            {
+                moveEvals[i] = 0.0f; // draw, no need to evalue further
                 continue;
             }
-            board.MakeMove(move);
-            if (currentDepth < maxDepth)
+            board.MakeMove(move); // make the move
+            if (currentDepth < maxDepth || isWhiteToPlay == isWhite) // evaluate with recursion
             {
-                // encourage material gain
-                float bias = gamePhase * (EvaluateBoard(board, isWhiteToPlay) - startEval) / 9.0f;
-                // encourage obvious moves
-                bias += 2.0f * moveObviousness[i] / moveObviousness.Max();
-                int weightedDepth = 2 + Math.Min(2 * (int)(0.5f * bias * timeCoeff), 4);
-                Move response = FindBestMove(board, !isWhiteToPlay, currentEval, currentDepth + 1, weightedDepth, timer);
-                board.MakeMove(response);
+                float materialBias = (EvaluateBoard(board, isWhiteToPlay) - currentEval) / 9.0f;
+                float timeBias = (timeRemainingAtStart - timer.MillisecondsElapsedThisTurn) / maxTime;
+                if (timeBias < 0.001f)
+                {
+                    Console.WriteLine("Time out!");
+                }
+                float obviousnessBias = moveObviousness[i] / moveObviousness.Max();
+                float progressBias = timeBias * (gamePhase + 0.0f) / 2.0f;
+                // compute the weighted depth 
+                int weightedDepth = Math.Min(Math.Max(1, (int)((movesBias + materialBias + obviousnessBias) * progressBias * depthLimit / 3.0f)), depthLimit);
+                Move response = FindBestMove(board, !isWhiteToPlay, -startEval, currentDepth + 1, weightedDepth, timer);
+                board.MakeMove(response); // make the response
                 // evaluate the position
-                moveEvals[i] = EvaluateBoard(board, isWhiteToPlay) - currentEval;
-                if (move.IsCastles && moveEvals[i] >= currentEval) moveEvals[i] += 1.0f; // encourage castling
-                board.UndoMove(response);
+                moveEvals[i] = EvaluateBoard(board, isWhiteToPlay) - startEval;
+                if (move.IsCastles && moveEvals[i] >= 0.0f)
+                {
+                    moveEvals[i] += 2.0f; // encourage castling
+                }
+                board.UndoMove(response); // undo the response
             }
-            else
+            else // evaluate naively
             {
-                // naive evaluation
-                moveEvals[i] = EvaluateBoard(board, isWhiteToPlay) - currentEval;
+                moveEvals[i] = EvaluateBoard(board, isWhiteToPlay) - startEval;
             }
-
-            board.UndoMove(move);
+            board.UndoMove(move); // undo the move
         }
 
         // Find the indices of the best moves
-        float bestEval = moveEvals.Max();
-        List<int> bestMoves = new List<int>();
-        for (int i = 0; i < numMoves; i++)
-        {
-            if (Math.Abs(moveEvals[i] - bestEval) <= 0.01f) // tolerance of 0.01
-            {
-                bestMoves.Add(i);
-            }
-        }
+        float bestEval = moveEvals[0];
+        // tolerance of 0.01
+        var bestMoves = moves.Where((move, i) => Math.Abs(moveEvals[i] - bestEval) <= 0.01f).ToList();
 
-        // Find the indices of most obvious among best moves
-        float bestObviousness = bestMoves.Max(i => moveObviousness[i]);
-        List<int> mostObviousMoves = bestMoves.Where(i => Math.Abs(moveObviousness[i] - bestObviousness) <= 0.01f).ToList();
-
-        return moves[mostObviousMoves[rng.Next(mostObviousMoves.Count)]];
+        // TO DO: FIX THE ABOVE CODE TO
+        // return the most obvious out of the best moves
+        return bestMoves[rng.Next(bestMoves.Count)];
     }
 
     float GetPieceValue(PieceType pieceType)
@@ -206,8 +208,7 @@ public class MyBot : IChessBot
     bool hasStarted = false;
     int gamePhase = 0; // 0 for opening, 1 for midgame, 2 for endgame
     int depthLimit = 20;
-    float timeRemainingAtStart;
     float maxTime;
+    float timeRemainingAtStart;
     System.Random rng;
-    Square newPos;
 }
