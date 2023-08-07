@@ -146,9 +146,11 @@ public class MyBot : IChessBot
                     bestMoves.Add(moves[i]);
                 }
             }
-            // larger eval, replace (only if move is reasonable)
-            else if (moveObviousness[i] > 0.5f)
+            // larger eval, replace
+            else
             {
+                // avoid adding risky moves if we're losing
+                if (moveEvals[i] <= 0.0f && moveObviousness[i] <= 0.5f) continue;
                 bestEval = moveEvals[i];
                 bestObviousness = moveObviousness[i];
                 bestMoves.Clear();
