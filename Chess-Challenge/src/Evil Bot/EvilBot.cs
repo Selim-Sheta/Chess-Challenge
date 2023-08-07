@@ -5,5 +5,5 @@ using System.Linq;
 
 namespace ChessChallenge.Example
 {
-    public class EvilBot : BotSecondAttempt { }
+    public class EvilBot : BotFourthAttempt { }
 }
