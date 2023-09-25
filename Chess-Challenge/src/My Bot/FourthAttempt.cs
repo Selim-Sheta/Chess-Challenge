@@ -44,27 +44,22 @@ public class BotFourthAttempt : IChessBot
         bool isInCheck = board.IsInCheck();
         float currentEval = EvaluateBoard(board, isWhiteToPlay);
 
-        // Evaluate all the moves
+        // Score the obviousness of the moves based on the basic principles of chess
         float[] moveObviousness = new float[numMoves];
-        float[] moveEvals = new float[numMoves];
-        float bestEval = -1000000.0f;
-        float bestObviousness = -1000000.0f;
         for (int i = 0; i < numMoves; i++)
         {
             Move move = moves[i];
             PieceType pieceType = move.MovePieceType;
-            board.MakeMove(move); // make the move
 
-            // handle checkmate
+            // 1. checks
+            board.MakeMove(move);
             if (board.IsInCheckmate())
             {
                 board.UndoMove(move);
                 return move;
             }
-
-            // Score the obviousness of the move based on the basic principles of chess
-            // 1. checks
             if (board.IsInCheck()) moveObviousness[i] += 3.0f;
+            board.UndoMove(move);
             // 2. capture
             if (move.IsCapture) moveObviousness[i] += GetPieceValue(move.CapturePieceType);
             // 3. movement
@@ -86,8 +81,17 @@ public class BotFourthAttempt : IChessBot
             if (pieceType == PieceType.Rook || pieceType == PieceType.Queen) moveObviousness[i] += (gamePhase + 1.0f) / 2.0f;
             // 4. special
             if (move.IsPromotion) moveObviousness[i] += GetPieceValue(move.PromotionPieceType) + 1.0f;
+        }
 
-            // Evaluate the move
+        // Evaluate the moves
+        float[] moveEvals = new float[numMoves];
+        float bestEval = -1000000.0f;
+        float bestObviousness = -1000000.0f;
+        for (int i = 0; i < numMoves; i++)
+        {
+            Move move = moves[i];
+            board.MakeMove(move); // make the move
+
             // handle draw
             if (board.IsDraw())
             {
@@ -155,6 +159,7 @@ public class BotFourthAttempt : IChessBot
                 bestMoves.Add(moves[i]);
             }
         }
+
         return bestMoves[rng.Next(bestMoves.Count)];
     }
 
